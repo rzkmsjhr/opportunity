@@ -1,0 +1,20 @@
+name = "opportunity-job-hunter"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "opportunity-db"
+database_id = "opportunity-db-id"
+
+[triggers]
+crons = ["0 */4 * * *"]
+
+[vars]
+ENVIRONMENT = "production"
+LOCAL_SYNC_TOKEN = "opp-hunter-secret-token"

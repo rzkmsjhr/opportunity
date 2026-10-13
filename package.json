@@ -1,0 +1,35 @@
+{
+  "name": "opportunity-job-hunter",
+  "version": "1.0.0",
+  "description": "Remote Part-time IT Job Scraper and Cold Email Automation for Rizki Masjahri Putra",
+  "type": "module",
+  "scripts": {
+    "dev:frontend": "vite",
+    "build:frontend": "vite build",
+    "dev": "wrangler dev",
+    "build": "vite build",
+    "deploy": "npm run build && wrangler deploy",
+    "db:init": "wrangler d1 execute opportunity-db --local --file=./schema.sql",
+    "db:init:remote": "wrangler d1 execute opportunity-db --remote --file=./schema.sql"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "hono": "^4.7.2",
+    "lucide-react": "^1.16.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^3.0.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261006.1",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vite": "^6.2.0",
+    "wrangler": "^4.149.0"
+  }
+}
