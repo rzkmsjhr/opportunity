@@ -43,6 +43,9 @@ export async function scrapeWeWorkRemotely(): Promise<Partial<Job>[]> {
       }
 
       const match = evaluateJobCompetency(title, description, [], 'Remote', 'part-time');
+      if (match.score < 40 || !match.isRemote || !match.isPartTime) {
+        continue;
+      }
       const hrEmail = extractHrEmail(description, '', company) || undefined;
 
       const idHash = Math.abs(url.split('').reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0)).toString(36);

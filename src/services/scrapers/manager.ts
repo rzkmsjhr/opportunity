@@ -48,7 +48,8 @@ export async function runAllCloudScrapers(env: Env): Promise<{ totalScraped: num
 
   for (const job of allJobs) {
     if (!job.title || !job.company || !job.url) continue;
-    if (job.match_score === 0 && (job.match_reasons?.includes('Skipped:') || false)) continue;
+    // Strictly require verified remote and minimum match score >= 40
+    if (!job.match_score || job.match_score < 40 || job.is_remote !== 1) continue;
 
     const id = job.id || `job_${Math.random().toString(36).substring(7)}`;
 

@@ -27,12 +27,18 @@ export async function scrapeArbeitnow(): Promise<Partial<Job>[]> {
       const title = item.title || '';
       const company = item.company_name || '';
       const description = item.description || '';
-      const tags = Array.isArray(item.tags) ? item.tags : [];
-      const location = item.location || 'Remote';
+      // Arbeitnow must explicitly declare remote: true
+      if (!item.remote) continue;
+
+      const location = item.location ? `${item.location} (Remote)` : 'Remote';
       const jobTypes = Array.isArray(item.job_types) ? item.job_types.join(', ') : 'part-time';
       const jobUrl = item.url || '';
 
       const match = evaluateJobCompetency(title, description, tags, location, jobTypes);
+      if (match.score < 40 || !match.isRemote || !match.isPartTime) {
+        continue;
+      }
+
       const hrEmail = extractHrEmail(description, '', company) || undefined;
 
       jobs.push({
@@ -42,7 +48,7 @@ export async function scrapeArbeitnow(): Promise<Partial<Job>[]> {
         title,
         company,
         location,
-        is_remote: item.remote ? 1 : (match.isRemote ? 1 : 0),
+        is_remote: 1,
         job_type: match.isPartTime ? 'part-time' : jobTypes,
         url: jobUrl,
         hr_email: hrEmail,

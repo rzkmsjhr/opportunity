@@ -76,16 +76,24 @@ def calculate_match_score(title: str, description: str, tags: list = None, locat
 
     # 0. Strict Non-APAC / Geographic Restriction Check (US/EU only)
     is_restricted_non_apac = bool(re.search(
-        r'\b(us only|usa only|u\.s\. only|united states only|north america only|canada only|eu only|europe only|uk only|latam only|must be located in the us|us citizens? only|us residents? only|within us timezones|cet [+-]\d)\b',
+        r'\b(us only|usa only|u\.s\. only|united states only|north america only|canada only|eu only|europe only|uk only|latam only|france only|remote france|germany only|remote germany|spain only|remote spain|must be located in|citizens? only|residents? only|within us timezones|us-based|us based|usa-based|usa based|u\.s\.-based|u\.s\. based|united states based|amerika serikat|cet [+-]\d)\b',
         text,
         re.IGNORECASE
     )) or (
-        bool(re.search(r'\b(us|usa|united states|canada|uk|europe)\b', location.lower())) and
+        bool(re.search(r'\b(us|usa|united states|amerika serikat|canada|uk|europe|france|germany|spain|italy)\b', location.lower())) and
         not bool(re.search(r'\b(worldwide|anywhere|global|apac|asia|indonesia)\b', location.lower()))
     )
 
     if is_restricted_non_apac:
-        return 0, ["Skipped: Geographically restricted (US/EU only, not open to Indonesia / GMT+7)"]
+        return 0, ["Skipped: Geographically restricted (US/EU/country-specific, not open to Indonesia / GMT+7)"]
+
+    # 0b. Non-Developer / Non-IT role filter: User is Fullstack/Frontend/Backend developer
+    is_non_dev_role = bool(re.search(
+        r'\b(intern\b|internship|magang|data analyst|qa tester|customer support|sales\b|accountant|recruiter|tutor|writer|copywriter)\b',
+        title.lower()
+    ))
+    if is_non_dev_role:
+        return 0, ["Skipped: Not a Fullstack/Frontend/Backend developer role (intern/analyst/support/sales)"]
 
     # 1. Dedicated Shopify Check
     has_shopify_title = bool(re.search(r'\bshopify\b', title, re.IGNORECASE))
@@ -113,12 +121,26 @@ def calculate_match_score(title: str, description: str, tags: list = None, locat
         re.IGNORECASE
     ))
 
-    # Strict Remote / WFH Verification
-    is_explicit_remote = bool(re.search(
-        r'\b(remote|wfh|work from home|kerja dari rumah|kerja jarak jauh|telecommute|work from anywhere|anywhere|worldwide)\b',
-        text,
-        re.IGNORECASE
-    )) or bool(re.search(r'\b(remote|wfh|worldwide|anywhere)\b', location.lower()))
+    loc_lower = location.lower()
+    title_lower = title.lower()
+    desc_lower = description.lower()
+
+    # If location specifies a physical geographic area (city/office) without remote/wfh/anywhere:
+    is_physical_office_location = (
+        len(loc_lower) > 0 and
+        not bool(re.search(r'\b(remote|wfh|worldwide|anywhere|everywhere|work from home|jarak jauh|virtual)\b', loc_lower))
+    )
+
+    # Positive proof of Remote / WFH (title, location, or explicit desc phrase)
+    has_remote_in_title = bool(re.search(r'\b(remote|wfh|work from home|kerja jarak jauh|telecommute|work from anywhere|anywhere|worldwide)\b', title_lower))
+    has_remote_in_loc = bool(re.search(r'\b(remote|wfh|worldwide|anywhere|everywhere|jarak jauh|virtual)\b', loc_lower))
+    has_remote_in_desc = bool(re.search(r'\b(100% remote|fully remote|strictly remote|remote role|remote position|work from home|kerja dari rumah|kerja jarak jauh|work from anywhere)\b', desc_lower))
+
+    is_explicit_remote = has_remote_in_title or has_remote_in_loc or has_remote_in_desc
+
+    # Reject physical on-site office jobs (e.g., Jakarta, Singapore, Berlin without remote proof)
+    if is_physical_office_location and not has_remote_in_title and not has_remote_in_desc:
+        return 0, [f"Skipped: On-site job at physical office location ({location})"]
 
     if is_onsite_strict or not is_explicit_remote:
         return 0, ["Skipped: Not a remote/WFH opportunity (requires on-site or office presence)"]
@@ -140,18 +162,18 @@ def calculate_match_score(title: str, description: str, tags: list = None, locat
 
     # 4. Strict Part-Time / Flexible Contract Verification ("ONLY PART TIME")
     is_strict_full_time = bool(re.search(
-        r'\b(penuh waktu|full-time only|full time only|strictly full-time|no contractors|strictly 40 hours|40\+ hours per week)\b',
+        r'\b(penuh waktu|full-time only|full time only|strictly full-time|permanent full-time|full-time\b|full time\b|40 hours per week|40 hrs\/week)\b',
         text,
         re.IGNORECASE
     ))
 
     part_time_keywords = [
         'part-time', 'part time', 'parttime', 'paruh waktu', 'hourly',
-        'contract', 'freelance', 'lepas', 'project-based', 'proyek', 'flexible hours', '10-20 hrs', '20 hrs', 'side gig'
+        'contract', 'kontrak', 'freelance', 'lepas', 'project-based', 'proyek', 'flexible hours', '10-20 hrs', '20 hrs', 'side gig', 'subcontractor'
     ]
 
-    matches_part_time = any(kw in text for kw in part_time_keywords)
-    is_contract_or_freelance = any(k in job_type.lower() for k in ['contract', 'freelance', 'part-time'])
+    matches_part_time = any(bool(re.search(r'\b' + re.escape(kw) + r'\b', text)) for kw in part_time_keywords)
+    is_contract_or_freelance = any(k in job_type.lower() for k in ['contract', 'freelance', 'part-time', 'project'])
 
     if is_strict_full_time and not matches_part_time:
         return 0, ["Skipped: Strictly full-time only (user requires ONLY PART TIME)"]
@@ -166,10 +188,12 @@ def calculate_match_score(title: str, description: str, tags: list = None, locat
         return 0, ["Skipped: Not verified as part-time or flexible contract (user requires ONLY PART TIME)"]
 
     # 5. Tech Stack Matching
-    if matched_tech:
-        tech_score = min(35, len(matched_tech) * 7)
-        score += tech_score
-        reasons.append(f"Matched skills: {', '.join(matched_tech[:5])}")
+    if not matched_tech:
+        return 0, ["Skipped: No relevant developer skills matched (PHP/Laravel/React/Vue/Node/Python)"]
+
+    tech_score = min(35, len(matched_tech) * 7)
+    score += tech_score
+    reasons.append(f"Matched skills: {', '.join(matched_tech[:5])}")
 
     final_score = min(100, max(0, score))
     return final_score, reasons
@@ -222,7 +246,7 @@ def scrape_glints_jobs() -> list:
                 location = "Indonesia (Remote)"
 
                 score, reasons = calculate_match_score(title, desc, tags=[kw], location=location, job_type=glints_type)
-                if score == 0:
+                if score < 40:
                     continue
 
                 job_id = f"glints_{item_id[:8]}"
@@ -250,23 +274,26 @@ def scrape_glints_jobs() -> list:
     return jobs
 
 def scrape_linkedin_jobs() -> list:
-    """Scrape LinkedIn strictly for Remote (f_WT=2) AND Part-Time (f_JT=P) roles."""
+    """Scrape LinkedIn strictly for Remote AND Part-Time / Flexible Contract roles."""
     jobs = []
     queries = [
-        {"keywords": "developer", "location": "Indonesia", "f_WT": "2", "f_JT": "P"},
-        {"keywords": "laravel", "location": "Indonesia", "f_WT": "2", "f_JT": "P"},
-        {"keywords": "react", "location": "Indonesia", "f_WT": "2", "f_JT": "P"},
-        {"keywords": "fullstack", "location": "Indonesia", "f_WT": "2", "f_JT": "P"},
-        {"keywords": "developer", "location": "Singapore", "f_WT": "2", "f_JT": "P"},
-        {"keywords": "developer", "location": "Asia-Pacific", "f_WT": "2", "f_JT": "P"},
-        {"keywords": "developer", "location": "Worldwide", "f_WT": "2", "f_JT": "P"}
+        {"keywords": "remote developer", "location": "Indonesia"},
+        {"keywords": "remote react", "location": "Indonesia"},
+        {"keywords": "remote laravel", "location": "Indonesia"},
+        {"keywords": "remote frontend", "location": "Indonesia"},
+        {"keywords": "remote backend", "location": "Indonesia"},
+        {"keywords": "remote fullstack", "location": "Indonesia"},
+        {"keywords": "freelance developer", "location": "Indonesia"},
+        {"keywords": "contract developer", "location": "Indonesia"},
+        {"keywords": "remote developer", "location": "Asia-Pacific"},
+        {"keywords": "remote part-time developer", "location": "Worldwide"}
     ]
 
     print("[*] Scraping LinkedIn (STRICT REMOTE & PART-TIME GUEST SEARCH)...")
 
     for q in queries:
         try:
-            params = f"keywords={quote_plus(q['keywords'])}&location={quote_plus(q['location'])}&f_WT={q['f_WT']}&f_JT={q['f_JT']}"
+            params = f"keywords={quote_plus(q['keywords'])}&location={quote_plus(q['location'])}&f_WT=2&f_JT=P"
             url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?{params}"
 
             res = requests.get(url, headers=HEADERS, timeout=12)
@@ -274,30 +301,50 @@ def scrape_linkedin_jobs() -> list:
                 continue
 
             soup = BeautifulSoup(res.text, 'html.parser')
-            cards = soup.select('div.job-search-card')
+            cards = soup.select('div.job-search-card, li')
 
             for card in cards:
-                title_el = card.select_one('.base-search-card__title')
-                comp_el = card.select_one('.base-search-card__subtitle')
+                title_el = card.select_one('.base-search-card__title, h3')
+                comp_el = card.select_one('.base-search-card__subtitle, h4')
                 loc_el = card.select_one('.job-search-card__location')
-                link_el = card.select_one('a.base-card__full-link')
+                link_el = card.select_one('a.base-card__full-link, a')
 
                 title = title_el.get_text(strip=True) if title_el else ""
                 company = comp_el.get_text(strip=True) if comp_el else ""
-                loc_text = loc_el.get_text(strip=True) if loc_el else q['location']
+                loc_text = loc_el.get_text(strip=True) if loc_el else ""
                 link = link_el['href'].split('?')[0] if link_el and 'href' in link_el.attrs else ""
 
-                if not title or not company or not link:
+                if not title or not company or not link or '/jobs/view/' not in link:
                     continue
 
-                # Exclude any on-site / hybrid markers
-                if re.search(r'\b(on-site|onsite|hybrid|wfo)\b', f"{title} {loc_text}", re.IGNORECASE):
+                title_lower = title.lower()
+                loc_lower = loc_text.lower()
+
+                # 1. Exclude any on-site / hybrid markers immediately
+                if re.search(r'\b(on-site|onsite|hybrid|wfo|kerja di lokasi|kerja di kantor|penempatan di)\b', f"{title_lower} {loc_lower}"):
                     continue
 
-                desc = f"LinkedIn Remote Part-Time listing: {title} at {company}. Location: {loc_text}. Role: Part-Time Remote."
-                score, reasons = calculate_match_score(title, desc, location=f"{loc_text} Remote", job_type="part-time")
+                # 2. Positive proof of Remote / WFH (Title or Location MUST explicitly confirm remote/wfh/anywhere)
+                # If location is a physical city/region like "Jakarta, Indonesia" without remote tag, SKIP!
+                is_remote_verified = (
+                    bool(re.search(r'\b(remote|wfh|jarak jauh|telecommute|work from home|work from anywhere|anywhere|worldwide)\b', title_lower)) or
+                    bool(re.search(r'\b(remote|wfh|jarak jauh|telecommute|anywhere|worldwide)\b', loc_lower))
+                )
+                if not is_remote_verified:
+                    continue
 
-                if score == 0:
+                # 3. Positive proof of Part-Time / Contract (Must explicitly match part-time or flexible contract)
+                is_pt_verified = bool(re.search(
+                    r'\b(part-time|part time|paruh waktu|freelance|contract|kontrak|hourly|project|side gig|lepas)\b',
+                    title_lower
+                ))
+                if not is_pt_verified:
+                    continue
+
+                desc = f"LinkedIn Verified Remote Role: {title} at {company}. Location: {loc_text}. Role: Part-Time / Contract."
+                score, reasons = calculate_match_score(title, desc, location=loc_text, job_type="contract")
+
+                if score < 40:
                     continue
 
                 job_id = f"li_{abs(hash(link)) % 10000000}"
@@ -307,7 +354,7 @@ def scrape_linkedin_jobs() -> list:
                     "source": "linkedin",
                     "title": title,
                     "company": company,
-                    "location": f"{loc_text} (Remote)",
+                    "location": loc_text if 'remote' in loc_lower else f"{loc_text} (Remote)",
                     "is_remote": 1,
                     "job_type": "part-time",
                     "url": link,
@@ -350,7 +397,7 @@ def scrape_jobicy_apac_jobs() -> list:
                     continue
 
                 score, reasons = calculate_match_score(title, desc, location=loc_str, job_type=job_type_str)
-                if score == 0:
+                if score < 40:
                     continue
 
                 hr_email = extract_email(desc)
@@ -399,7 +446,7 @@ def scrape_remoteok_jobs() -> list:
                     continue
 
                 score, reasons = calculate_match_score(title, desc, tags=item.get("tags", []), location=loc, job_type="contract")
-                if score == 0:
+                if score < 40:
                     continue
 
                 hr_email = extract_email(desc)

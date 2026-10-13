@@ -39,8 +39,8 @@ export async function scrapeJobicy(): Promise<Partial<Job>[]> {
         const tags: string[] = [];
 
         const match = evaluateJobCompetency(title, description, tags, location, jobType);
-        if (match.score === 0 && match.reasons?.[0]?.startsWith('Skipped:')) {
-          continue; // Skip Shopify or US-only restricted
+        if (match.score < 40 || !match.isRemote || !match.isPartTime) {
+          continue;
         }
 
         const hrEmail = extractHrEmail(description, '', company) || undefined;

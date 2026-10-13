@@ -174,11 +174,12 @@ app.post('/api/jobs/sync', async (c) => {
         job.title,
         job.description || '',
         job.tags ? (typeof job.tags === 'string' ? JSON.parse(job.tags) : job.tags) : [],
-        job.location || 'Remote',
-        job.job_type || 'part-time'
+        job.location || '',
+        job.job_type || ''
       );
 
-      if (match.score === 0 && (match.reasons?.[0]?.startsWith('Skipped:') || false)) {
+      // Strictly drop any job that does not score at least 40 or fails remote/part-time
+      if (match.score < 40 || !match.isRemote || !match.isPartTime) {
         continue;
       }
 

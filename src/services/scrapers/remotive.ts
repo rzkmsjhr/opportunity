@@ -34,6 +34,9 @@ export async function scrapeRemotive(): Promise<Partial<Job>[]> {
       const salary = item.salary || '';
 
       const match = evaluateJobCompetency(title, description, tags, location, jobType);
+      if (match.score < 40 || !match.isRemote || !match.isPartTime) {
+        continue;
+      }
       const hrEmail = extractHrEmail(description, '', company) || undefined;
 
       jobs.push({

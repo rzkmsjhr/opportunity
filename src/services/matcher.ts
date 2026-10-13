@@ -17,13 +17,27 @@ export function evaluateJobCompetency(
   // 0. Geographic Restriction Check: User is based in Indonesia (GMT+7).
   // "make sure its ok to apply if the candidate are from indonesia gmt +7"
   const isRestrictedNonApac =
-    /\b(us only|usa only|u\.s\. only|united states only|north america only|canada only|eu only|europe only|uk only|latam only|must be located in the us|us citizens? only|us residents? only|within us timezones|cet [+-]\d)\b/i.test(fullText) ||
-    (/\b(us|usa|united states|canada|uk|europe)\b/i.test(location.toLowerCase()) && !/\b(worldwide|anywhere|global|apac|asia|indonesia)\b/i.test(location.toLowerCase()));
+    /\b(us only|usa only|u\.s\. only|united states only|north america only|canada only|eu only|europe only|uk only|latam only|france only|remote france|germany only|remote germany|spain only|remote spain|must be located in|citizens? only|residents? only|within us timezones|us-based|us based|usa-based|usa based|u\.s\.-based|u\.s\. based|united states based|amerika serikat|cet [+-]\d)\b/i.test(fullText) ||
+    (/\b(us|usa|united states|amerika serikat|canada|uk|europe|france|germany|spain|italy)\b/i.test(location.toLowerCase()) && !/\b(worldwide|anywhere|global|apac|asia|indonesia)\b/i.test(location.toLowerCase()));
 
   if (isRestrictedNonApac) {
     return {
       score: 0,
-      reasons: ['Skipped: Geographically restricted (US/EU only, not open to Indonesia / GMT+7)'],
+      reasons: ['Skipped: Geographically restricted (US/EU/country-specific, not open to Indonesia / GMT+7)'],
+      isPartTime: false,
+      isRemote: false,
+      matchedTags: []
+    };
+  }
+
+  // 0b. Non-Developer / Non-IT role filter: User is Fullstack/Frontend/Backend developer
+  const isNonDevRole =
+    /\b(intern\b|internship|magang|data analyst|qa tester|customer support|sales\b|accountant|recruiter|tutor|writer|copywriter)\b/i.test(titleLower);
+
+  if (isNonDevRole) {
+    return {
+      score: 0,
+      reasons: ['Skipped: Not a Fullstack/Frontend/Backend developer role (intern/analyst/support/sales)'],
       isPartTime: false,
       isRemote: false,
       matchedTags: []
@@ -35,10 +49,31 @@ export function evaluateJobCompetency(
   const isOnsiteStrict =
     /\b(kerja di lokasi|kerja di kantor|penempatan di kantor|wfo|work from office|work in office|onsite|on-site|in-office|in office|wfo strictly|hybrid|wfo south jakarta|wfo jakarta|onsite only|on-site only|penempatan di)\b/i.test(fullText);
 
-  // 2. Strict Remote / WFH Verification (Must be explicitly remote/wfh)
-  const isExplicitRemote =
-    /\b(remote|wfh|work from home|kerja dari rumah|kerja jarak jauh|telecommute|work from anywhere|anywhere|worldwide)\b/i.test(fullText) ||
-    /\b(remote|wfh|worldwide|anywhere)\b/i.test(location.toLowerCase());
+  const locLower = (location || '').toLowerCase();
+  const descLower = (description || '').toLowerCase();
+
+  // If location specifies a physical geographic area (city/office) without remote/wfh/anywhere:
+  const isPhysicalOfficeLocation =
+    locLower.length > 0 &&
+    !/\b(remote|wfh|worldwide|anywhere|everywhere|work from home|jarak jauh|virtual)\b/i.test(locLower);
+
+  // Positive proof of Remote / WFH (title, location, or explicit desc phrase)
+  const hasRemoteInTitle = /\b(remote|wfh|work from home|kerja jarak jauh|telecommute|work from anywhere|anywhere|worldwide)\b/i.test(titleLower);
+  const hasRemoteInLocation = /\b(remote|wfh|worldwide|anywhere|everywhere|jarak jauh|virtual)\b/i.test(locLower);
+  const hasRemoteInDesc = /\b(100% remote|fully remote|strictly remote|remote role|remote position|work from home|kerja dari rumah|kerja jarak jauh|work from anywhere)\b/i.test(descLower);
+
+  const isExplicitRemote = hasRemoteInTitle || hasRemoteInLocation || hasRemoteInDesc;
+
+  // Reject physical on-site office jobs (e.g., Jakarta, Singapore, Berlin with no remote proof in title/desc)
+  if (isPhysicalOfficeLocation && !hasRemoteInTitle && !hasRemoteInDesc) {
+    return {
+      score: 0,
+      reasons: [`Skipped: On-site job at physical office location (${location})`],
+      isPartTime: false,
+      isRemote: false,
+      matchedTags: []
+    };
+  }
 
   if (isOnsiteStrict || !isExplicitRemote) {
     return {
@@ -64,11 +99,11 @@ export function evaluateJobCompetency(
     'any timezone', 'flexible timezone', 'timezone agnostic'
   ];
 
-  const isApacAligned = apacKeywords.some(kw => fullText.includes(kw) || location.toLowerCase().includes(kw));
+  const isApacAligned = apacKeywords.some(kw => fullText.includes(kw) || locLower.includes(kw));
 
   const isWorldwide =
     /\b(worldwide|anywhere|global|work from anywhere|remote worldwide|all locations)\b/i.test(fullText) ||
-    /\b(worldwide|anywhere|global)\b/i.test(location.toLowerCase());
+    /\b(worldwide|anywhere|global)\b/i.test(locLower);
 
   if (isApacAligned) {
     score += 15;
@@ -81,7 +116,7 @@ export function evaluateJobCompetency(
   // 2. Strict Part-Time / Flexible Contract Verification
   // "ONLY PART TIME, IT field, Fullstack, Frontend, Backend devs"
   const isStrictFullTime =
-    /\b(penuh waktu|full-time only|full time only|strictly full-time|no contractors|strictly 40 hours|40\+ hours per week)\b/i.test(fullText);
+    /\b(penuh waktu|full-time only|full time only|strictly full-time|permanent full-time|full-time\b|full time\b|40 hours per week|40 hrs\/week)\b/i.test(fullText);
 
   const partTimeKeywords = [
     'part-time',
@@ -90,6 +125,7 @@ export function evaluateJobCompetency(
     'paruh waktu',
     'hourly',
     'contract',
+    'kontrak',
     'freelance',
     'lepas',
     'project-based',
@@ -97,13 +133,18 @@ export function evaluateJobCompetency(
     'flexible hours',
     '10-20 hrs',
     '20 hrs',
-    'hours per week',
     'side gig',
     'subcontractor'
   ];
 
-  const matchesPartTime = partTimeKeywords.some(kw => fullText.includes(kw));
-  const isContractOrFreelance = jobType.toLowerCase().includes('contract') || jobType.toLowerCase().includes('freelance') || jobType.toLowerCase().includes('part-time');
+  const matchesPartTime = partTimeKeywords.some(kw =>
+    new RegExp(`\\b${kw.replace('-', '[- ]')}\\b`, 'i').test(fullText)
+  );
+  const isContractOrFreelance =
+    jobType.toLowerCase().includes('contract') ||
+    jobType.toLowerCase().includes('freelance') ||
+    jobType.toLowerCase().includes('part-time') ||
+    jobType.toLowerCase().includes('project');
 
   let isPartTime = false;
   if (isStrictFullTime && !matchesPartTime) {
@@ -165,13 +206,21 @@ export function evaluateJobCompetency(
     }
   }
 
+  if (matchedTags.length === 0) {
+    return {
+      score: 0,
+      reasons: ['Skipped: No relevant developer skills matched (PHP/Laravel/React/Vue/Node/Python)'],
+      isPartTime: false,
+      isRemote: false,
+      matchedTags: []
+    };
+  }
+
   // Cap tech score at 35 points
   const cappedTechScore = Math.min(35, techScore);
   score += cappedTechScore;
 
-  if (matchedTags.length > 0) {
-    reasons.push(`Matched skills: ${matchedTags.slice(0, 5).join(', ')}`);
-  }
+  reasons.push(`Matched skills: ${matchedTags.slice(0, 5).join(', ')}`);
 
   // 4. Shopify Filter: User does not do Shopify
   // "its still returning shopify opportunity, i dont do shopify, its ok if its mixed with technology i have experinced, but if its not, skip it"
