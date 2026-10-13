@@ -94,6 +94,21 @@ def calculate_match_score(title: str, description: str, tags: list = None) -> tu
         tech_score = min(35, len(matched_tech) * 7)
         score += tech_score
         reasons.append(f"Matched skills: {', '.join(matched_tech[:5])}")
+
+    # 4. Shopify Filter: User does not do Shopify
+    # "its still returning shopify opportunity, i dont do shopify, its ok if its mixed with technology i have experinced, but if its not, skip it"
+    has_shopify_title = bool(re.search(r'\bshopify\b', title, re.IGNORECASE))
+    has_shopify_text = bool(re.search(r'\bshopify\b', text, re.IGNORECASE))
+
+    if has_shopify_text:
+        is_dedicated_shopify = has_shopify_title and not bool(re.search(r'\b(laravel|symfony|codeigniter)\b', title, re.IGNORECASE))
+        core_stacks = [t for t in matched_tech if t.lower() not in ['fullstack', 'frontend', 'backend', 'tech lead']]
+
+        if is_dedicated_shopify:
+            return 0, ["Skipped: Dedicated Shopify opportunity (user does not do Shopify)"]
+
+        if not core_stacks:
+            return 0, ["Skipped: Shopify role without core experienced technology (Laravel/PHP/React/Vue/Node)"]
         
     final_score = min(100, max(0, score))
     return final_score, reasons
@@ -131,6 +146,9 @@ def scrape_lever_jobs(query: str = "remote part-time developer") -> list:
                     continue
                     
                 score, reasons = calculate_match_score(title, desc)
+                if score == 0 and any("Skipped:" in r for r in reasons):
+                    continue # Skip Shopify / non-matching jobs completely
+                
                 hr_email = extract_email(desc)
                 
                 job_id = f"laptop_{abs(hash(link)) % 10000000}"

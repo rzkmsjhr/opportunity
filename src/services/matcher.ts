@@ -120,6 +120,42 @@ export function evaluateJobCompetency(
     reasons.push(`Matched skills: ${matchedTags.slice(0, 5).join(', ')}`);
   }
 
+  // 4. Shopify Filter: User does not do Shopify
+  // "its still returning shopify opportunity, i dont do shopify, its ok if its mixed with technology i have experinced, but if its not, skip it"
+  const hasShopifyInTitle = /\bshopify\b/i.test(title);
+  const hasShopifyInText = /\bshopify\b/i.test(fullText);
+
+  if (hasShopifyInText) {
+    const isShopifyJobTitle =
+      hasShopifyInTitle && !/\b(laravel|symfony|codeigniter)\b/i.test(titleLower);
+
+    const experiencedTechStacks = matchedTags.filter(
+      t => !['Tech Lead', 'Fullstack Dev', 'Frontend Dev', 'Backend Dev'].includes(t)
+    );
+
+    // If the title designates it as a Shopify role, skip completely
+    if (isShopifyJobTitle) {
+      return {
+        score: 0,
+        reasons: ['Skipped: Dedicated Shopify opportunity (user does not do Shopify)'],
+        isPartTime: false,
+        isRemote: false,
+        matchedTags: []
+      };
+    }
+
+    // If Shopify is mentioned, but NO core experienced tech stacks are present, skip it
+    if (experiencedTechStacks.length === 0) {
+      return {
+        score: 0,
+        reasons: ['Skipped: Shopify role without core experienced technology (Laravel/PHP/React/Vue/Node)'],
+        isPartTime: false,
+        isRemote: false,
+        matchedTags: []
+      };
+    }
+  }
+
   // Title relevance bonus
   if (
     titleLower.includes('fullstack') ||

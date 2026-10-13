@@ -166,8 +166,12 @@ app.post('/api/jobs/sync', async (c) => {
         job.job_type || 'part-time'
       );
 
-      const finalScore = job.match_score ?? match.score;
-      const reasons = job.match_reasons || JSON.stringify(match.reasons);
+      if (match.score === 0 && (match.reasons?.[0]?.startsWith('Skipped:') || false)) {
+        continue;
+      }
+
+      const finalScore = match.score;
+      const reasons = JSON.stringify(match.reasons);
       const hrEmail = job.hr_email || extractHrEmail(job.description || '', job.company_url || '', job.company) || null;
 
       // Upsert
