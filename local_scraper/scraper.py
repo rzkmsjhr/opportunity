@@ -1,7 +1,8 @@
 """
 Opportunity Hunter - Local Laptop Companion Scraper
 Designed for M Rizki Masjahri Putra to scrape remote, part-time IT jobs
-from residential IP and push directly to Cloudflare Web App & D1 Database.
+from residential IP across Global, APAC, ASEAN, and Indonesia big players
+(LinkedIn, Glints, Jobicy APAC, RemoteOK) and push directly to Cloudflare Web App & D1 Database.
 """
 
 import sys
@@ -23,7 +24,7 @@ HEADERS = {
         "Chrome/124.0.0.0 Safari/537.36"
     ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
     "Referer": "https://www.google.com/"
 }
 
@@ -33,6 +34,15 @@ CORE_KEYWORDS = [
     "react", "next.js", "remix", "vue", "nuxt", "angular",
     "node.js", "typescript", "javascript", "fastapi", "python",
     "fullstack", "frontend", "backend", "wordpress"
+]
+
+APAC_LOCATIONS = [
+    "indonesia", "jakarta", "surabaya", "malang", "bandung", "bali", "yogyakarta",
+    "singapore", "malaysia", "kuala lumpur", "philippines", "manila", "vietnam", "thailand", "bangkok",
+    "australia", "sydney", "melbourne", "new zealand", "japan", "tokyo", "korea", "seoul", "hong kong", "taiwan",
+    "apac", "asia-pacific", "asia pacific", "asia", "asean", "southeast asia", "sea",
+    "gmt+7", "utc+7", "gmt+8", "utc+8", "gmt+9", "wib", "ict", "aest", "jst",
+    "any timezone", "flexible timezone", "timezone agnostic"
 ]
 
 def extract_email(text: str, domain: str = "") -> str:
@@ -55,50 +65,40 @@ def extract_email(text: str, domain: str = "") -> str:
     if priority_candidates:
         return priority_candidates[0]
         
-    if domain and '.' in domain and not any(ign in domain for ign in ['github.com', 'google.com']):
+    if domain and '.' in domain and not any(ign in domain for ign in ['github.com', 'google.com', 'linkedin.com']):
         return f"careers@{domain}"
         
     return ""
 
-def calculate_match_score(title: str, description: str, tags: list = None) -> tuple:
-    """Calculate match score based on Part-Time + Remote + Tech Stack."""
-    text = f"{title} {description} {' '.join(tags or [])}".lower()
+def calculate_match_score(title: str, description: str, tags: list = None, location: str = "") -> tuple:
+    """Calculate match score based on Part-Time + Remote + APAC / GMT+7 + Tech Stack."""
+    text = f"{title} {description} {' '.join(tags or [])} {location}".lower()
     score = 0
     reasons = []
-    
-    # 1. Part-time check
-    is_part_time = any(kw in text for kw in [
-        'part-time', 'part time', 'hourly', 'contract', 'freelance', 'flexible hours', 'side gig'
-    ])
-    if is_part_time:
-        score += 35
-        reasons.append("Part-time / Flexible Contract verified")
-    else:
-        score = max(0, score - 15)
-        
-    # 2. Remote check
-    is_remote = any(kw in text for kw in [
-        'remote', 'wfh', 'work from home', 'anywhere', 'worldwide'
-    ])
-    if is_remote:
-        score += 30
-        reasons.append("Remote / WFH verified")
-        
-    # 3. Tech stack check
+
+    # 0. Geographic Restriction Check: User is based in Indonesia (GMT+7)
+    # Exclude jobs that strictly require US/EU residency or citizenship
+    is_restricted_non_apac = bool(re.search(
+        r'\b(us only|usa only|u\.s\. only|united states only|north america only|canada only|eu only|europe only|uk only|latam only|must be located in the us|us citizens? only|us residents? only|within us timezones|cet \+\/-|cet \+/-)\b',
+        text,
+        re.IGNORECASE
+    )) or (
+        bool(re.search(r'\b(us|usa|united states|canada|uk|europe)\b', location.lower())) and
+        not bool(re.search(r'\b(worldwide|anywhere|global|apac|asia|indonesia)\b', location.lower()))
+    )
+
+    if is_restricted_non_apac:
+        return 0, ["Skipped: Geographically restricted (US/EU only, not open to Indonesia / GMT+7)"]
+
+    # 1. Shopify Filter
+    has_shopify_title = bool(re.search(r'\bshopify\b', title, re.IGNORECASE))
+    has_shopify_text = bool(re.search(r'\bshopify\b', text, re.IGNORECASE))
+
+    # Match tech stack
     matched_tech = []
     for kw in CORE_KEYWORDS:
         if re.search(r'\b' + re.escape(kw) + r'\b', text):
             matched_tech.append(kw.capitalize())
-            
-    if matched_tech:
-        tech_score = min(35, len(matched_tech) * 7)
-        score += tech_score
-        reasons.append(f"Matched skills: {', '.join(matched_tech[:5])}")
-
-    # 4. Shopify Filter: User does not do Shopify
-    # "its still returning shopify opportunity, i dont do shopify, its ok if its mixed with technology i have experinced, but if its not, skip it"
-    has_shopify_title = bool(re.search(r'\bshopify\b', title, re.IGNORECASE))
-    has_shopify_text = bool(re.search(r'\bshopify\b', text, re.IGNORECASE))
 
     if has_shopify_text:
         is_dedicated_shopify = has_shopify_title and not bool(re.search(r'\b(laravel|symfony|codeigniter)\b', title, re.IGNORECASE))
@@ -109,56 +109,219 @@ def calculate_match_score(title: str, description: str, tags: list = None) -> tu
 
         if not core_stacks:
             return 0, ["Skipped: Shopify role without core experienced technology (Laravel/PHP/React/Vue/Node)"]
-        
+
+    # 2. Remote check
+    is_remote = any(kw in text for kw in [
+        'remote', 'wfh', 'work from home', 'anywhere', 'worldwide', 'telecommute'
+    ])
+    if is_remote:
+        score += 25
+        reasons.append("Remote / WFH verified")
+
+    # 3. Location & Timezone Check: APAC / ASEAN / Indonesia vs Worldwide
+    is_apac_aligned = any(kw in text or kw in location.lower() for kw in APAC_LOCATIONS)
+    is_worldwide = bool(re.search(r'\b(worldwide|anywhere|global|work from anywhere|remote worldwide)\b', text)) or \
+                   bool(re.search(r'\b(worldwide|anywhere|global)\b', location.lower()))
+
+    if is_apac_aligned:
+        score += 20
+        reasons.append("APAC / ASEAN Timezone aligned (GMT+7 friendly)")
+    elif is_worldwide:
+        score += 15
+        reasons.append("Worldwide Remote (Open to candidates in Indonesia)")
+
+    # 4. Part-time check
+    is_part_time = any(kw in text for kw in [
+        'part-time', 'part time', 'hourly', 'contract', 'freelance', 'paruh waktu', 'lepas', 'proyek', 'flexible hours', 'side gig'
+    ])
+    if is_part_time:
+        score += 30
+        reasons.append("Part-time / Flexible Contract verified")
+    else:
+        score = max(0, score - 15)
+
+    # 5. Tech stack score
+    if matched_tech:
+        tech_score = min(35, len(matched_tech) * 7)
+        score += tech_score
+        reasons.append(f"Matched skills: {', '.join(matched_tech[:5])}")
+
     final_score = min(100, max(0, score))
     return final_score, reasons
 
-def scrape_lever_jobs(query: str = "remote part-time developer") -> list:
-    """Search public job aggregators and developer boards for remote part-time roles."""
+# ----------------- SCRAPER MODULES ----------------- #
+
+def scrape_linkedin_jobs() -> list:
+    """Scrape LinkedIn guest job search endpoint for Indonesia & APAC remote roles."""
     jobs = []
-    print(f"[*] Querying developer boards for: '{query}'...")
-    
-    search_urls = [
-        f"https://remoteok.com/api?tag=dev",
-        f"https://jobicy.com/api/v2/remote-jobs?count=20&industry=tech"
+    queries = [
+        {"keywords": "laravel", "location": "Indonesia", "f_WT": "2"},
+        {"keywords": "react", "location": "Indonesia", "f_WT": "2"},
+        {"keywords": "fullstack", "location": "Indonesia", "f_WT": "2"},
+        {"keywords": "developer", "location": "Indonesia", "f_WT": "2", "f_JT": "P"},
+        {"keywords": "developer", "location": "Singapore", "f_WT": "2", "f_JT": "P"},
+        {"keywords": "developer", "location": "Asia-Pacific", "f_WT": "2", "f_JT": "P"}
     ]
-    
-    for url in search_urls:
+
+    print("[*] Scraping LinkedIn (Indonesia & APAC Guest Search)...")
+
+    for q in queries:
         try:
+            params = f"keywords={quote_plus(q['keywords'])}&location={quote_plus(q['location'])}&f_WT={q['f_WT']}"
+            if "f_JT" in q:
+                params += f"&f_JT={q['f_JT']}"
+            url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?{params}"
+
             res = requests.get(url, headers=HEADERS, timeout=12)
             if res.status_code != 200:
                 continue
-            
-            data = res.json()
-            items = []
-            if isinstance(data, list):
-                items = data[1:] # skip disclaimer
-            elif isinstance(data, dict) and "jobs" in data:
-                items = data["jobs"]
-                
-            for item in items:
-                title = item.get("position") or item.get("jobTitle") or ""
-                company = item.get("company") or item.get("companyName") or ""
-                desc = item.get("description") or item.get("jobDescription") or ""
-                link = item.get("url") or item.get("link") or ""
-                
+
+            soup = BeautifulSoup(res.text, 'html.parser')
+            cards = soup.select('div.job-search-card')
+
+            for card in cards:
+                title_el = card.select_one('.base-search-card__title')
+                comp_el = card.select_one('.base-search-card__subtitle')
+                loc_el = card.select_one('.job-search-card__location')
+                link_el = card.select_one('a.base-card__full-link')
+
+                title = title_el.get_text(strip=True) if title_el else ""
+                company = comp_el.get_text(strip=True) if comp_el else ""
+                location = loc_el.get_text(strip=True) if loc_el else q['location']
+                link = link_el['href'].split('?')[0] if link_el and 'href' in link_el.attrs else ""
+
                 if not title or not company or not link:
                     continue
-                    
-                score, reasons = calculate_match_score(title, desc)
+
+                desc = f"Position: {title} at {company} located in {location}. Remote opportunity in APAC / Indonesia."
+                score, reasons = calculate_match_score(title, desc, location=location)
+
                 if score == 0 and any("Skipped:" in r for r in reasons):
-                    continue # Skip Shopify / non-matching jobs completely
-                
-                hr_email = extract_email(desc)
-                
-                job_id = f"laptop_{abs(hash(link)) % 10000000}"
-                
+                    continue
+
+                job_id = f"li_{abs(hash(link)) % 10000000}"
+
                 jobs.append({
                     "id": job_id,
-                    "source": "laptop_runner",
+                    "source": "linkedin",
                     "title": title,
                     "company": company,
-                    "location": "Remote",
+                    "location": f"{location} (Remote)",
+                    "is_remote": 1,
+                    "job_type": "part-time" if "f_JT" in q else "contract",
+                    "url": link,
+                    "hr_email": None,
+                    "description": desc,
+                    "match_score": score,
+                    "match_reasons": json.dumps(reasons),
+                    "status": "new"
+                })
+            time.sleep(1) # respectful delay
+        except Exception as e:
+            print(f"[-] LinkedIn scrape warning for {q}: {e}")
+
+    print(f"[+] LinkedIn: Collected {len(jobs)} candidate jobs.")
+    return jobs
+
+def scrape_glints_jobs() -> list:
+    """Scrape Glints Indonesia tech listings via Next.js job explorer."""
+    jobs = []
+    keywords = ["laravel", "react", "fullstack", "php", "vue", "node"]
+    print("[*] Scraping Glints (Indonesia & Southeast Asia)...")
+
+    for kw in keywords:
+        try:
+            url = f"https://glints.com/id/opportunities/jobs/explore?keyword={quote_plus(kw)}&country=ID"
+            res = requests.get(url, headers=HEADERS, timeout=12)
+            if res.status_code != 200:
+                continue
+
+            soup = BeautifulSoup(res.text, 'html.parser')
+            next_data = soup.find('script', id='__NEXT_DATA__')
+            if not next_data or not next_data.string:
+                continue
+
+            d = json.loads(next_data.string)
+            items = d.get('props', {}).get('pageProps', {}).get('initialJobs', {}).get('jobsInPage', [])
+
+            for item in items:
+                title = item.get('title') or ""
+                company_obj = item.get('company') or {}
+                company = company_obj.get('name') or "Indonesian Tech Company"
+                item_id = item.get('id') or ""
+                is_remote_flag = item.get('isRemote')
+                job_type = item.get('jobType') or "part-time"
+
+                if not title or not item_id:
+                    continue
+
+                link = f"https://glints.com/id/opportunities/jobs/{item_id}"
+                desc = f"Glints opportunity: {title} at {company}. Stacks mentioned: {kw}."
+
+                location = "Indonesia / APAC"
+                score, reasons = calculate_match_score(title, desc, tags=[kw], location=location)
+
+                if score == 0 and any("Skipped:" in r for r in reasons):
+                    continue
+
+                job_id = f"glints_{item_id[:8]}"
+
+                jobs.append({
+                    "id": job_id,
+                    "source": "glints",
+                    "title": title,
+                    "company": company,
+                    "location": "Indonesia (Remote / Hybrid)",
+                    "is_remote": 1 if is_remote_flag else 1,
+                    "job_type": "part-time" if job_type == "PART_TIME" else "contract",
+                    "url": link,
+                    "hr_email": None,
+                    "description": desc,
+                    "match_score": score,
+                    "match_reasons": json.dumps(reasons),
+                    "status": "new"
+                })
+            time.sleep(1)
+        except Exception as e:
+            print(f"[-] Glints scrape warning for {kw}: {e}")
+
+    print(f"[+] Glints: Collected {len(jobs)} candidate jobs.")
+    return jobs
+
+def scrape_jobicy_apac_jobs() -> list:
+    """Scrape Jobicy specifically for APAC remote listings."""
+    jobs = []
+    print("[*] Scraping Jobicy (APAC Geo Stream)...")
+    url = "https://jobicy.com/api/v2/remote-jobs?count=40&geo=apac"
+
+    try:
+        res = requests.get(url, headers=HEADERS, timeout=12)
+        if res.status_code == 200:
+            data = res.json()
+            items = data.get("jobs", [])
+            for item in items:
+                title = item.get("jobTitle") or ""
+                company = item.get("companyName") or ""
+                desc = item.get("jobDescription") or item.get("jobExcerpt") or ""
+                link = item.get("url") or ""
+                loc = item.get("jobGeo") or "APAC (Remote)"
+
+                if not title or not company or not link:
+                    continue
+
+                score, reasons = calculate_match_score(title, desc, location=loc)
+                if score == 0 and any("Skipped:" in r for r in reasons):
+                    continue
+
+                hr_email = extract_email(desc)
+                job_id = f"jobicy_apac_{item.get('id', abs(hash(link)) % 10000000)}"
+
+                jobs.append({
+                    "id": job_id,
+                    "source": "jobicy_apac",
+                    "title": title,
+                    "company": company,
+                    "location": loc,
                     "is_remote": 1,
                     "job_type": "part-time",
                     "url": link,
@@ -168,56 +331,132 @@ def scrape_lever_jobs(query: str = "remote part-time developer") -> list:
                     "match_reasons": json.dumps(reasons),
                     "status": "new"
                 })
-        except Exception as e:
-            print(f"[-] Scrape error for {url}: {e}")
-            
-    print(f"[+] Found {len(jobs)} candidate jobs from runner sources.")
+    except Exception as e:
+        print(f"[-] Jobicy APAC scrape warning: {e}")
+
+    print(f"[+] Jobicy APAC: Collected {len(jobs)} candidate jobs.")
     return jobs
 
+def scrape_remoteok_jobs() -> list:
+    """Scrape RemoteOK public API with Worldwide & APAC developer roles."""
+    jobs = []
+    print("[*] Scraping RemoteOK developer board...")
+    url = "https://remoteok.com/api?tag=dev"
+
+    try:
+        res = requests.get(url, headers=HEADERS, timeout=12)
+        if res.status_code == 200:
+            data = res.json()
+            items = data[1:] if isinstance(data, list) else []
+            for item in items:
+                title = item.get("position") or ""
+                company = item.get("company") or ""
+                desc = item.get("description") or ""
+                link = item.get("url") or ""
+                loc = item.get("location") or "Remote Worldwide"
+
+                if not title or not company or not link:
+                    continue
+
+                score, reasons = calculate_match_score(title, desc, tags=item.get("tags", []), location=loc)
+                if score == 0 and any("Skipped:" in r for r in reasons):
+                    continue
+
+                hr_email = extract_email(desc)
+                job_id = f"remoteok_{item.get('id', abs(hash(link)) % 10000000)}"
+
+                jobs.append({
+                    "id": job_id,
+                    "source": "remoteok",
+                    "title": title,
+                    "company": company,
+                    "location": loc,
+                    "is_remote": 1,
+                    "job_type": "part-time",
+                    "url": link,
+                    "hr_email": hr_email or None,
+                    "description": desc[:3000],
+                    "match_score": score,
+                    "match_reasons": json.dumps(reasons),
+                    "status": "new"
+                })
+    except Exception as e:
+        print(f"[-] RemoteOK scrape warning: {e}")
+
+    print(f"[+] RemoteOK: Collected {len(jobs)} candidate jobs.")
+    return jobs
+
+# ----------------- SYNC & MAIN ----------------- #
+
 def sync_to_cloudflare(jobs: list, api_url: str, token: str):
-    """POST parsed jobs directly to Cloudflare Web App API endpoint."""
+    """POST parsed jobs directly to Cloudflare Web App API endpoint in batches."""
     endpoint = f"{api_url.rstrip('/')}/api/jobs/sync"
     print(f"[*] Syncing {len(jobs)} jobs to {endpoint}...")
-    
+
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
-    
-    try:
-        res = requests.post(endpoint, json={"jobs": jobs}, headers=headers, timeout=20)
-        if res.status_code == 200:
-            result = res.json()
-            print(f"[SUCCESS] Synced {result.get('count', len(jobs))} jobs to your Cloudflare Web App!")
-        else:
-            print(f"[ERROR] Sync failed: HTTP {res.status_code} - {res.text}")
-    except Exception as e:
-        print(f"[ERROR] Could not connect to API at {endpoint}: {e}")
+
+    # Deduplicate by url/id before sending
+    unique_jobs = {}
+    for j in jobs:
+        unique_jobs[j["url"]] = j
+
+    jobs_to_send = list(unique_jobs.values())
+
+    # Send in chunks of 50
+    chunk_size = 50
+    total_synced = 0
+    for i in range(0, len(jobs_to_send), chunk_size):
+        chunk = jobs_to_send[i:i + chunk_size]
+        try:
+            res = requests.post(endpoint, json={"jobs": chunk}, headers=headers, timeout=25)
+            if res.status_code == 200:
+                result = res.json()
+                total_synced += result.get('count', len(chunk))
+            else:
+                print(f"[!] Batch sync error: HTTP {res.status_code} - {res.text}")
+        except Exception as e:
+            print(f"[!] Batch connection error: {e}")
+
+    print(f"[SUCCESS] Total successfully synced to Cloudflare: {total_synced} opportunities!")
 
 def main():
-    parser = argparse.ArgumentParser(description="Opportunity Hunter - Local Laptop Companion Scraper")
-    parser.add_argument("--api-url", default=DEFAULT_API_URL, help="Cloudflare Worker or local API URL (e.g. http://localhost:8787 or https://your-worker.workers.dev)")
-    parser.add_argument("--token", default=DEFAULT_SYNC_TOKEN, help="LOCAL_SYNC_TOKEN matching your wrangler.toml / worker config")
-    parser.add_argument("--query", default="remote part-time fullstack", help="Job search query")
+    parser = argparse.ArgumentParser(description="Opportunity Hunter - APAC & Global Companion Scraper")
+    parser.add_argument("--api-url", default=DEFAULT_API_URL, help="Cloudflare Worker or local API URL")
+    parser.add_argument("--token", default=DEFAULT_SYNC_TOKEN, help="LOCAL_SYNC_TOKEN")
     parser.add_argument("--dry-run", action="store_true", help="Print jobs without sending to API")
     args = parser.parse_args()
-    
-    print("=" * 60)
-    print("  OPPORTUNITY HUNTER - LOCAL RUNNER")
-    print(f"  Target: Remote Part-Time IT Roles")
-    print(f"  Profile: M Rizki Masjahri Putra (PHP/Laravel + React/Node)")
-    print("=" * 60)
-    
-    jobs = scrape_lever_jobs(query=args.query)
-    
+
+    print("=" * 65)
+    print("  OPPORTUNITY HUNTER - APAC & INDONESIA RUNNER")
+    print("  Target: Remote / WFH & Part-Time IT Roles")
+    print("  Location: APAC, ASEAN, Indonesia (GMT+7) & Worldwide")
+    print("  Platforms: LinkedIn, Glints, Jobicy APAC, RemoteOK")
+    print("  Candidate: M Rizki Masjahri Putra (PHP/Laravel + React/Node)")
+    print("=" * 65)
+
+    all_jobs = []
+    all_jobs.extend(scrape_linkedin_jobs())
+    all_jobs.extend(scrape_glints_jobs())
+    all_jobs.extend(scrape_jobicy_apac_jobs())
+    all_jobs.extend(scrape_remoteok_jobs())
+
+    print("=" * 65)
+    print(f"[+] Total raw opportunities collected: {len(all_jobs)}")
+
     if args.dry_run:
-        print("[*] Dry run mode enabled. Printing first 3 jobs:")
-        for j in jobs[:3]:
-            print(f"- [{j['match_score']}% Match] {j['title']} @ {j['company']} (HR: {j.get('hr_email')})")
+        print("[*] Dry run mode enabled. Printing sample high matches:")
+        high_matches = [j for j in all_jobs if j['match_score'] >= 70]
+        for j in high_matches[:5]:
+            reasons = json.loads(j['match_reasons'])
+            print(f"- [{j['match_score']}% Match] {j['title']} @ {j['company']} ({j['location']})")
+            print(f"  Reasons: {', '.join(reasons)}")
         return
-        
-    if jobs:
-        sync_to_cloudflare(jobs, api_url=args.api_url, token=args.token)
+
+    if all_jobs:
+        sync_to_cloudflare(all_jobs, api_url=args.api_url, token=args.token)
     else:
         print("[!] No matching jobs found in this run.")
 

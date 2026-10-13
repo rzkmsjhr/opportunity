@@ -44,6 +44,7 @@ app.get('/api/jobs', async (c) => {
     const status = c.req.query('status') || '';
     const minScore = parseInt(c.req.query('minScore') || '0', 10);
     const search = c.req.query('search') || '';
+    const region = c.req.query('region') || '';
     const page = parseInt(c.req.query('page') || '1', 10);
     const limit = parseInt(c.req.query('limit') || '20', 10);
     const offset = (page - 1) * limit;
@@ -61,10 +62,16 @@ app.get('/api/jobs', async (c) => {
       params.push(minScore);
     }
 
+    if (region === 'apac') {
+      query += " AND (location LIKE '%indonesia%' OR location LIKE '%apac%' OR location LIKE '%singapore%' OR location LIKE '%malaysia%' OR location LIKE '%philippines%' OR location LIKE '%vietnam%' OR location LIKE '%asia%' OR location LIKE '%asean%' OR match_reasons LIKE '%APAC%' OR source IN ('glints', 'linkedin', 'jobicy_apac'))";
+    } else if (region === 'worldwide') {
+      query += " AND (location LIKE '%worldwide%' OR location LIKE '%global%' OR location LIKE '%anywhere%' OR match_reasons LIKE '%Worldwide%')";
+    }
+
     if (search) {
-      query += ' AND (title LIKE ? OR company LIKE ? OR tags LIKE ? OR description LIKE ?)';
+      query += ' AND (title LIKE ? OR company LIKE ? OR tags LIKE ? OR description LIKE ? OR location LIKE ?)';
       const s = `%${search}%`;
-      params.push(s, s, s, s);
+      params.push(s, s, s, s, s);
     }
 
     query += ' ORDER BY match_score DESC, created_at DESC LIMIT ? OFFSET ?';
@@ -84,10 +91,15 @@ app.get('/api/jobs', async (c) => {
       countQuery += ' AND match_score >= ?';
       countParams.push(minScore);
     }
+    if (region === 'apac') {
+      countQuery += " AND (location LIKE '%indonesia%' OR location LIKE '%apac%' OR location LIKE '%singapore%' OR location LIKE '%malaysia%' OR location LIKE '%philippines%' OR location LIKE '%vietnam%' OR location LIKE '%asia%' OR location LIKE '%asean%' OR match_reasons LIKE '%APAC%' OR source IN ('glints', 'linkedin', 'jobicy_apac'))";
+    } else if (region === 'worldwide') {
+      countQuery += " AND (location LIKE '%worldwide%' OR location LIKE '%global%' OR location LIKE '%anywhere%' OR match_reasons LIKE '%Worldwide%')";
+    }
     if (search) {
-      countQuery += ' AND (title LIKE ? OR company LIKE ? OR tags LIKE ? OR description LIKE ?)';
+      countQuery += ' AND (title LIKE ? OR company LIKE ? OR tags LIKE ? OR description LIKE ? OR location LIKE ?)';
       const s = `%${search}%`;
-      countParams.push(s, s, s, s);
+      countParams.push(s, s, s, s, s);
     }
 
     const totalCountRes = await c.env.DB.prepare(countQuery).bind(...countParams).first<{ total: number }>();

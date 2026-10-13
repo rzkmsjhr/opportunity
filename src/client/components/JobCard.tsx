@@ -76,7 +76,16 @@ export const JobCard: React.FC<JobCardProps> = ({
               {job.company}
             </span>
             <span className="text-slate-600">•</span>
-            <span className="text-[11px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 border border-slate-700 font-mono">
+            {/* Source Pill */}
+            <span className={`text-[11px] px-2 py-0.5 rounded-md font-mono font-medium border ${
+              job.source === 'glints'
+                ? 'bg-red-500/15 text-red-400 border-red-500/30'
+                : job.source === 'linkedin'
+                ? 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+                : job.source === 'jobicy_apac'
+                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                : 'bg-slate-800 text-slate-400 border-slate-700'
+            }`}>
               {job.source}
             </span>
             
@@ -85,6 +94,18 @@ export const JobCard: React.FC<JobCardProps> = ({
               <MapPin className="w-3 h-3" />
               {job.location || 'Remote'}
             </span>
+
+            {/* APAC Timezone Friendly Pill */}
+            {(job.location?.toLowerCase().includes('indonesia') || 
+              job.location?.toLowerCase().includes('apac') || 
+              job.location?.toLowerCase().includes('singapore') ||
+              job.match_reasons?.includes('APAC') || 
+              job.source === 'glints' || 
+              job.source === 'jobicy_apac') && (
+              <span className="text-[11px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold flex items-center gap-1">
+                🌏 GMT+7 / APAC
+              </span>
+            )}
 
             {/* Part Time Pill */}
             <span className="text-[11px] px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-400 border border-purple-500/20 font-medium flex items-center gap-1">

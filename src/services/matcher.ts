@@ -14,6 +14,22 @@ export function evaluateJobCompetency(
   const reasons: string[] = [];
   const matchedTags: string[] = [];
 
+  // 0. Geographic Restriction Check: User is based in Indonesia (GMT+7).
+  // "make sure its ok to apply if the candidate are from indonesia gmt +7"
+  const isRestrictedNonApac =
+    /\b(us only|usa only|u\.s\. only|united states only|north america only|canada only|eu only|europe only|uk only|latam only|must be located in the us|us citizens? only|us residents? only|within us timezones|cet [+-]\d)\b/i.test(fullText) ||
+    (/\b(us|usa|united states|canada|uk|europe)\b/i.test(location.toLowerCase()) && !/\b(worldwide|anywhere|global|apac|asia|indonesia)\b/i.test(location.toLowerCase()));
+
+  if (isRestrictedNonApac) {
+    return {
+      score: 0,
+      reasons: ['Skipped: Geographically restricted (US/EU only, not open to Indonesia / GMT+7)'],
+      isPartTime: false,
+      isRemote: false,
+      matchedTags: []
+    };
+  }
+
   // 1. Remote / WFH Check (Must be Remote or WFH)
   const isExplicitRemote =
     fullText.includes('remote') ||
@@ -21,20 +37,45 @@ export function evaluateJobCompetency(
     fullText.includes('work from home') ||
     fullText.includes('anywhere') ||
     fullText.includes('worldwide') ||
+    fullText.includes('telecommute') ||
     location.toLowerCase().includes('remote');
 
   const isStrictlyOnsite =
-    (fullText.includes('on-site') || fullText.includes('in-office') || fullText.includes('relocation required')) &&
-    !fullText.includes('remote');
+    (fullText.includes('on-site') || fullText.includes('in-office') || fullText.includes('relocation required') || fullText.includes('wfo only')) &&
+    !fullText.includes('remote') && !fullText.includes('wfh');
 
   let isRemote = false;
   if (isExplicitRemote && !isStrictlyOnsite) {
     isRemote = true;
-    score += 30;
+    score += 25;
     reasons.push('Remote / WFH verified');
   } else if (!isStrictlyOnsite) {
     // If not strictly on-site, assume partially possible
     score += 10;
+  }
+
+  // 1b. Location & Timezone Check: APAC / ASEAN / Indonesia vs Worldwide
+  const apacKeywords = [
+    'indonesia', 'jakarta', 'surabaya', 'malang', 'bandung', 'bali', 'yogyakarta',
+    'singapore', 'malaysia', 'kuala lumpur', 'philippines', 'manila', 'vietnam', 'thailand', 'bangkok',
+    'australia', 'sydney', 'melbourne', 'new zealand', 'japan', 'tokyo', 'korea', 'seoul', 'hong kong', 'taiwan',
+    'apac', 'asia-pacific', 'asia pacific', 'asia', 'asean', 'southeast asia', 'sea',
+    'gmt+7', 'utc+7', 'gmt+8', 'utc+8', 'gmt+9', 'wib', 'ict', 'aest', 'jst',
+    'any timezone', 'flexible timezone', 'timezone agnostic'
+  ];
+
+  const isApacAligned = apacKeywords.some(kw => fullText.includes(kw) || location.toLowerCase().includes(kw));
+
+  const isWorldwide =
+    /\b(worldwide|anywhere|global|work from anywhere|remote worldwide|all locations)\b/i.test(fullText) ||
+    /\b(worldwide|anywhere|global)\b/i.test(location.toLowerCase());
+
+  if (isApacAligned) {
+    score += 20;
+    reasons.push('APAC / ASEAN Timezone aligned (GMT+7 friendly)');
+  } else if (isWorldwide) {
+    score += 15;
+    reasons.push('Worldwide Remote (Open to candidates in Indonesia)');
   }
 
   // 2. Part-Time / Flexible Contract Check (ONLY PART TIME requirement)
@@ -42,9 +83,13 @@ export function evaluateJobCompetency(
     'part-time',
     'part time',
     'parttime',
+    'paruh waktu',
     'hourly',
     'contract',
     'freelance',
+    'lepas',
+    'project-based',
+    'proyek',
     'flexible hours',
     '10-20 hrs',
     '20 hrs',

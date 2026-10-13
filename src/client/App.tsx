@@ -32,6 +32,7 @@ export const App: React.FC = () => {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [minScore, setMinScore] = useState(0);
+  const [region, setRegion] = useState('');
 
   // Stats
   const [stats, setStats] = useState({
@@ -83,7 +84,8 @@ export const App: React.FC = () => {
         limit,
         search,
         status,
-        minScore
+        minScore,
+        region
       });
       setJobs(data.jobs);
       setTotalJobs(data.total);
@@ -92,7 +94,7 @@ export const App: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, status, minScore]);
+  }, [page, limit, search, status, minScore, region]);
 
   useEffect(() => {
     loadStatsAndSettings();
@@ -218,6 +220,8 @@ export const App: React.FC = () => {
           onStatusChange={(val) => { setStatus(val); setPage(1); }}
           minScore={minScore}
           onMinScoreChange={(val) => { setMinScore(val); setPage(1); }}
+          region={region}
+          onRegionChange={(val) => { setRegion(val); setPage(1); }}
         />
 
         {/* Jobs List */}

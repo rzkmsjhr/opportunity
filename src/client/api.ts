@@ -18,6 +18,7 @@ export async function fetchJobs(params: {
   status?: string;
   minScore?: number;
   search?: string;
+  region?: string;
   page?: number;
   limit?: number;
 }) {
@@ -25,6 +26,7 @@ export async function fetchJobs(params: {
   if (params.status) query.set('status', params.status);
   if (params.minScore) query.set('minScore', String(params.minScore));
   if (params.search) query.set('search', params.search);
+  if (params.region) query.set('region', params.region);
   if (params.page) query.set('page', String(params.page));
   if (params.limit) query.set('limit', String(params.limit));
 
