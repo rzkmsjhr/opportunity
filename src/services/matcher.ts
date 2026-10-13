@@ -30,29 +30,29 @@ export function evaluateJobCompetency(
     };
   }
 
-  // 1. Remote / WFH Check (Must be Remote or WFH)
+  // 1. Strict On-Site / Office Exclusion
+  // "this is not remote opportunities, fix the scrapper"
+  const isOnsiteStrict =
+    /\b(kerja di lokasi|kerja di kantor|penempatan di kantor|wfo|work from office|work in office|onsite|on-site|in-office|in office|wfo strictly|hybrid|wfo south jakarta|wfo jakarta|onsite only|on-site only|penempatan di)\b/i.test(fullText);
+
+  // 2. Strict Remote / WFH Verification (Must be explicitly remote/wfh)
   const isExplicitRemote =
-    fullText.includes('remote') ||
-    fullText.includes('wfh') ||
-    fullText.includes('work from home') ||
-    fullText.includes('anywhere') ||
-    fullText.includes('worldwide') ||
-    fullText.includes('telecommute') ||
-    location.toLowerCase().includes('remote');
+    /\b(remote|wfh|work from home|kerja dari rumah|kerja jarak jauh|telecommute|work from anywhere|anywhere|worldwide)\b/i.test(fullText) ||
+    /\b(remote|wfh|worldwide|anywhere)\b/i.test(location.toLowerCase());
 
-  const isStrictlyOnsite =
-    (fullText.includes('on-site') || fullText.includes('in-office') || fullText.includes('relocation required') || fullText.includes('wfo only')) &&
-    !fullText.includes('remote') && !fullText.includes('wfh');
-
-  let isRemote = false;
-  if (isExplicitRemote && !isStrictlyOnsite) {
-    isRemote = true;
-    score += 25;
-    reasons.push('Remote / WFH verified');
-  } else if (!isStrictlyOnsite) {
-    // If not strictly on-site, assume partially possible
-    score += 10;
+  if (isOnsiteStrict || !isExplicitRemote) {
+    return {
+      score: 0,
+      reasons: ['Skipped: Not a remote/WFH opportunity (requires on-site or office presence)'],
+      isPartTime: false,
+      isRemote: false,
+      matchedTags: []
+    };
   }
+
+  score += 30;
+  reasons.push('Remote / WFH verified');
+  const isRemote = true;
 
   // 1b. Location & Timezone Check: APAC / ASEAN / Indonesia vs Worldwide
   const apacKeywords = [
@@ -71,14 +71,18 @@ export function evaluateJobCompetency(
     /\b(worldwide|anywhere|global)\b/i.test(location.toLowerCase());
 
   if (isApacAligned) {
-    score += 20;
+    score += 15;
     reasons.push('APAC / ASEAN Timezone aligned (GMT+7 friendly)');
   } else if (isWorldwide) {
-    score += 15;
+    score += 10;
     reasons.push('Worldwide Remote (Open to candidates in Indonesia)');
   }
 
-  // 2. Part-Time / Flexible Contract Check (ONLY PART TIME requirement)
+  // 2. Strict Part-Time / Flexible Contract Verification
+  // "ONLY PART TIME, IT field, Fullstack, Frontend, Backend devs"
+  const isStrictFullTime =
+    /\b(penuh waktu|full-time only|full time only|strictly full-time|no contractors|strictly 40 hours|40\+ hours per week)\b/i.test(fullText);
+
   const partTimeKeywords = [
     'part-time',
     'part time',
@@ -98,33 +102,37 @@ export function evaluateJobCompetency(
     'subcontractor'
   ];
 
-  const fullTimeStrictKeywords = [
-    'full-time only',
-    'full time only',
-    'no contractors',
-    'strictly 40 hours',
-    '40+ hours per week'
-  ];
+  const matchesPartTime = partTimeKeywords.some(kw => fullText.includes(kw));
+  const isContractOrFreelance = jobType.toLowerCase().includes('contract') || jobType.toLowerCase().includes('freelance') || jobType.toLowerCase().includes('part-time');
 
   let isPartTime = false;
-  const matchesPartTime = partTimeKeywords.some(kw => fullText.includes(kw));
-  const isStrictFullTime = fullTimeStrictKeywords.some(kw => fullText.includes(kw));
+  if (isStrictFullTime && !matchesPartTime) {
+    return {
+      score: 0,
+      reasons: ['Skipped: Strictly full-time only (user requires ONLY PART TIME)'],
+      isPartTime: false,
+      isRemote: true,
+      matchedTags: []
+    };
+  }
 
-  if (matchesPartTime && !isStrictFullTime) {
+  if (matchesPartTime) {
     isPartTime = true;
-    score += 35;
+    score += 25;
     reasons.push('Part-time / Flexible Contract verified');
-  } else if (jobType.toLowerCase().includes('contract') || jobType.toLowerCase().includes('freelance')) {
+  } else if (isContractOrFreelance) {
     isPartTime = true;
-    score += 30;
+    score += 20;
     reasons.push('Contract / Freelance (Part-time adaptable)');
-  } else if (jobType.toLowerCase().includes('part-time') || jobType.toLowerCase().includes('part time')) {
-    isPartTime = true;
-    score += 35;
-    reasons.push('Part-time role');
   } else {
-    // If not explicitly part-time, we penalize because user said "ONLY PART TIME"
-    score = Math.max(0, score - 20);
+    // If not verified part-time or flexible contract, skip it
+    return {
+      score: 0,
+      reasons: ['Skipped: Not verified as part-time or flexible contract (user requires ONLY PART TIME)'],
+      isPartTime: false,
+      isRemote: true,
+      matchedTags: []
+    };
   }
 
   // 3. Technical Competency Matching (Rizki's Profile)
